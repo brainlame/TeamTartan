@@ -157,6 +157,16 @@ export default function Home() {
       {/* Hero Section */}
       <header className="border-b border-[var(--border)] bg-white">
         <div className="mx-auto max-w-7xl px-6 py-16 sm:px-8 lg:px-12">
+          {/* Login Button */}
+          <div className="flex justify-end mb-8">
+            <a
+              href="/login"
+              className="px-5 py-2 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
+            >
+              Log In
+            </a>
+          </div>
+
           <div className="text-center">
             <h1 className="text-6xl font-semibold tracking-tight text-[var(--gray-900)] sm:text-7xl lg:text-8xl">
               TeamTartan
