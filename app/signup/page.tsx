@@ -2,8 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/utils/supabase/client';
 
 export default function SignupPage() {
+  const router = useRouter();
+  const supabase = createClient();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -13,6 +17,8 @@ export default function SignupPage() {
     confirmPassword: '',
     profilePicture: null as File | null,
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -28,10 +34,80 @@ export default function SignupPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Signup data:', formData);
-    // Handle signup logic here
+    setError(null);
+
+    // Validation
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (!formData.email.endsWith('@andrew.cmu.edu')) {
+      setError('Must use a CMU email address');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Sign up the user
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            year: formData.year,
+          },
+        },
+      });
+
+      if (signUpError) {
+        setError(signUpError.message);
+        setLoading(false);
+        return;
+      }
+
+      // If profile picture was uploaded, upload it to storage
+      if (formData.profilePicture && authData.user) {
+        const fileExt = formData.profilePicture.name.split('.').pop();
+        const fileName = `${authData.user.id}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('profile-pictures')
+          .upload(fileName, formData.profilePicture, {
+            upsert: true,
+          });
+
+        if (!uploadError) {
+          // Get public URL
+          const { data: { publicUrl } } = supabase.storage
+            .from('profile-pictures')
+            .getPublicUrl(fileName);
+
+          // Update profile with picture URL
+          await supabase
+            .from('profiles')
+            .update({ profile_picture_url: publicUrl })
+            .eq('id', authData.user.id);
+        }
+      }
+
+      // Redirect to home page
+      router.push('/');
+    } catch (err) {
+      console.error('Signup error:', err);
+      setError('An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -49,6 +125,13 @@ export default function SignupPage() {
             Join the community and start creating friendships
           </p>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="p-4 border border-red-200 bg-red-50">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
 
         {/* Signup Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -183,9 +266,10 @@ export default function SignupPage() {
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full py-3 border border-[var(--gray-900)] bg-[var(--gray-900)] text-white text-sm font-medium hover:bg-[var(--gray-800)] transition-colors"
+            disabled={loading}
+            className="w-full py-3 border border-[var(--gray-900)] bg-[var(--gray-900)] text-white text-sm font-medium hover:bg-[var(--gray-800)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Create Account
+            {loading ? 'Creating Account...' : 'Create Account'}
           </button>
         </form>
 

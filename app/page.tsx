@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { useAuth } from './contexts/AuthContext';
+import Link from 'next/link';
 
 const FILTERS = ['All Events', 'Social', 'Sports', 'Academic', 'Arts', 'Volunteer'];
 
@@ -12,23 +14,34 @@ interface Event {
   date: string;
   time: string;
   location: string;
-  participants: string[];
+  participants: string[]; // Array of user IDs
   hashtags: string[];
   category: string;
+  creator_id?: string;
   created_at?: string;
   updated_at?: string;
 }
 
+interface Profile {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
 export default function Home() {
   const supabase = createClient();
+  const { user, profile, signOut } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Events');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [participantProfiles, setParticipantProfiles] = useState<Profile[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [joiningEvent, setJoiningEvent] = useState(false);
   const [newEvent, setNewEvent] = useState({
     title: '',
     description: '',
@@ -65,6 +78,67 @@ export default function Home() {
   useEffect(() => {
     fetchEvents();
   }, []);
+
+  // Fetch participant profiles when event is selected
+  useEffect(() => {
+    if (selectedEvent && selectedEvent.participants.length > 0) {
+      fetchParticipantProfiles(selectedEvent.participants);
+    } else {
+      setParticipantProfiles([]);
+    }
+  }, [selectedEvent]);
+
+  const fetchParticipantProfiles = async (participantIds: string[]) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .in('id', participantIds);
+
+      if (error) {
+        console.error('Error fetching participant profiles:', error);
+        return;
+      }
+
+      setParticipantProfiles(data || []);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const handleJoinEvent = async () => {
+    if (!user || !selectedEvent) return;
+
+    setJoiningEvent(true);
+
+    try {
+      const isJoined = selectedEvent.participants.includes(user.id);
+      const updatedParticipants = isJoined
+        ? selectedEvent.participants.filter(id => id !== user.id)
+        : [...selectedEvent.participants, user.id];
+
+      const { error } = await supabase
+        .from('events')
+        .update({ participants: updatedParticipants })
+        .eq('id', selectedEvent.id);
+
+      if (error) {
+        console.error('Error updating event participants:', error);
+        alert('Failed to update event. Please try again.');
+        return;
+      }
+
+      // Refresh events and update selected event
+      await fetchEvents();
+      const updatedEvent = { ...selectedEvent, participants: updatedParticipants };
+      setSelectedEvent(updatedEvent);
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Failed to update event. Please try again.');
+    } finally {
+      setJoiningEvent(false);
+    }
+  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -127,14 +201,65 @@ export default function Home() {
       {/* Hero Section */}
       <header className="border-b border-[var(--border)] bg-white">
         <div className="mx-auto max-w-7xl px-6 py-16 sm:px-8 lg:px-12">
-          {/* Login Button */}
+          {/* Auth Section */}
           <div className="flex justify-end mb-8">
-            <a
-              href="/login"
-              className="px-5 py-2 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
-            >
-              Log In
-            </a>
+            {user && profile ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  className="flex items-center gap-3 px-4 py-2 border border-[var(--border)] hover:border-[var(--gray-300)] transition-colors"
+                >
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-[var(--gray-900)]">
+                      {profile.first_name} {profile.last_name}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">{profile.year}</p>
+                  </div>
+                  {profile.profile_picture_url ? (
+                    <img
+                      src={profile.profile_picture_url}
+                      alt="Profile"
+                      className="w-10 h-10 object-cover"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 bg-[var(--gray-200)] flex items-center justify-center">
+                      <span className="text-sm font-medium text-[var(--gray-600)]">
+                        {profile.first_name[0]}{profile.last_name[0]}
+                      </span>
+                    </div>
+                  )}
+                </button>
+
+                {/* Profile Dropdown */}
+                {showProfileMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-[var(--border)] shadow-sm z-10">
+                    <Link
+                      href="/profile"
+                      className="block px-4 py-3 text-sm text-[var(--gray-900)] hover:bg-[var(--gray-50)] transition-colors"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      View Profile
+                    </Link>
+                    <button
+                      onClick={async () => {
+                        await signOut();
+                        setShowProfileMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-3 text-sm text-[var(--gray-900)] hover:bg-[var(--gray-50)] transition-colors border-t border-[var(--border)]"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="px-5 py-2 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
+              >
+                Log In
+              </Link>
+            )}
           </div>
 
           <div className="text-center">
@@ -175,12 +300,21 @@ export default function Home() {
           {/* Filters and Create Button */}
           <div className="mt-8 space-y-4">
             <div className="flex justify-center">
-              <button
-                onClick={() => setShowCreateForm(true)}
-                className="px-5 py-2.5 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
-              >
-                Create Event
-              </button>
+              {user ? (
+                <button
+                  onClick={() => setShowCreateForm(true)}
+                  className="px-5 py-2.5 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
+                >
+                  Create Event
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  className="px-5 py-2.5 text-sm border border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)] transition-colors"
+                >
+                  Log in to Create Event
+                </Link>
+              )}
             </div>
             <div className="flex flex-wrap justify-center gap-2">
               {FILTERS.map((filter) => (
@@ -333,16 +467,20 @@ export default function Home() {
                 <h3 className="text-sm font-medium text-[var(--gray-900)] mb-3">
                   Participants ({selectedEvent.participants.length})
                 </h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedEvent.participants.map((participant, index) => (
-                    <span
-                      key={index}
-                      className="px-3 py-1.5 text-sm border border-[var(--border)] bg-[var(--gray-50)] text-[var(--gray-700)]"
-                    >
-                      {participant}
-                    </span>
-                  ))}
-                </div>
+                {participantProfiles.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {participantProfiles.map((participant) => (
+                      <span
+                        key={participant.id}
+                        className="px-3 py-1.5 text-sm border border-[var(--border)] bg-[var(--gray-50)] text-[var(--gray-700)]"
+                      >
+                        {participant.first_name} {participant.last_name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--muted)]">No participants yet</p>
+                )}
               </div>
 
               {/* Hashtags */}
@@ -363,9 +501,30 @@ export default function Home() {
 
             {/* Modal Footer */}
             <div className="border-t border-[var(--border)] p-6">
-              <button className="w-full py-3 border border-[var(--gray-900)] bg-[var(--gray-900)] text-white text-sm font-medium hover:bg-[var(--gray-800)] transition-colors">
-                Join Event
-              </button>
+              {user ? (
+                <button
+                  onClick={handleJoinEvent}
+                  disabled={joiningEvent}
+                  className={`w-full py-3 border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    selectedEvent.participants.includes(user.id)
+                      ? 'border-[var(--border)] bg-white text-[var(--gray-700)] hover:bg-[var(--gray-50)]'
+                      : 'border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)]'
+                  }`}
+                >
+                  {joiningEvent
+                    ? 'Updating...'
+                    : selectedEvent.participants.includes(user.id)
+                    ? 'Leave Event'
+                    : 'Join Event'}
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  className="block w-full py-3 border border-[var(--gray-900)] bg-[var(--gray-900)] text-white text-sm font-medium hover:bg-[var(--gray-800)] transition-colors text-center"
+                >
+                  Log in to Join
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -532,6 +691,11 @@ export default function Home() {
                   }
 
                   try {
+                    if (!user) {
+                      alert('You must be logged in to create an event');
+                      return;
+                    }
+
                     const { error } = await supabase
                       .from('events')
                       .insert([
@@ -544,6 +708,7 @@ export default function Home() {
                           category: newEvent.category,
                           hashtags: newEvent.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
                           participants: [],
+                          creator_id: user.id,
                         }
                       ]);
 
