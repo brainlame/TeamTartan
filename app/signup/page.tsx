@@ -122,7 +122,7 @@ export default function SignupPage() {
           </Link>
           <h2 className="text-2xl font-semibold text-[var(--gray-900)]">Create Account</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Join the community and start creating friendships
+            Join the community and build lifelong friendships
           </p>
         </div>
 

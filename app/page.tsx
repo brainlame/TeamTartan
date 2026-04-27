@@ -17,6 +17,7 @@ interface Event {
   participants: string[]; // Array of user IDs
   hashtags: string[];
   category: string;
+  max_participants?: number;
   creator_id?: string;
   created_at?: string;
   updated_at?: string;
@@ -50,7 +51,10 @@ export default function Home() {
     location: '',
     category: 'Social',
     tags: '',
+    maxParticipants: '',
   });
+  const [sortBy, setSortBy] = useState('date-asc');
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
   // Fetch events from Supabase
   const fetchEvents = async () => {
@@ -63,12 +67,21 @@ export default function Home() {
 
       if (error) {
         console.error('Error fetching events:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        alert(`Failed to load events: ${error.message}\n\nThis might be a Row Level Security (RLS) policy issue. Check the console for details.`);
         return;
       }
 
+      console.log('Events fetched successfully:', data?.length || 0, 'events');
       setEvents(data || []);
     } catch (error) {
       console.error('Error:', error);
+      alert('Unexpected error loading events. Check console for details.');
     } finally {
       setLoading(false);
     }
@@ -113,6 +126,14 @@ export default function Home() {
 
     try {
       const isJoined = selectedEvent.participants.includes(user.id);
+
+      // Check if event is full before joining
+      if (!isJoined && selectedEvent.max_participants && selectedEvent.participants.length >= selectedEvent.max_participants) {
+        alert('This event is full. No more spots available.');
+        setJoiningEvent(false);
+        return;
+      }
+
       const updatedParticipants = isJoined
         ? selectedEvent.participants.filter(id => id !== user.id)
         : [...selectedEvent.participants, user.id];
@@ -170,14 +191,60 @@ export default function Home() {
     return `${hour12}:${minutes} ${modifier}`;
   };
 
-  // Filter and search events
-  const filteredEvents = events.filter((event) => {
-    const matchesFilter = activeFilter === 'All Events' || event.category === activeFilter;
-    const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.hashtags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
-  });
+  // Filter, search, and sort events
+  const filteredEvents = events
+    .filter((event) => {
+      const matchesFilter = activeFilter === 'All Events' || event.category === activeFilter;
+      const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        event.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        event.hashtags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesFilter && matchesSearch;
+    })
+    .filter((event) => {
+      // Apply additional filters
+      if (activeFilters.length === 0) return true;
+
+      return activeFilters.every(filter => {
+        switch (filter) {
+          case 'open-spots':
+            // Show events with open spots (either no max or current < max)
+            return !event.max_participants || event.participants.length < event.max_participants;
+          case 'today':
+            const today = new Date();
+            const eventDate = new Date(event.date);
+            return (
+              eventDate.getFullYear() === today.getFullYear() &&
+              eventDate.getMonth() === today.getMonth() &&
+              eventDate.getDate() === today.getDate()
+            );
+          case 'this-week':
+            const now = new Date();
+            const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const evDate = new Date(event.date);
+            return evDate >= now && evDate <= weekFromNow;
+          case 'joined':
+            return user ? event.participants.includes(user.id) : false;
+          default:
+            return true;
+        }
+      });
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'date-asc':
+          return new Date(a.date).getTime() - new Date(b.date).getTime();
+        case 'date-desc':
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        case 'participants-asc':
+          return a.participants.length - b.participants.length;
+        case 'participants-desc':
+          return b.participants.length - a.participants.length;
+        case 'alphabetical':
+          return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+        default:
+          return 0;
+      }
+    });
 
   // Close modals with Escape key
   useEffect(() => {
@@ -267,33 +334,150 @@ export default function Home() {
               TeamTartan
             </h1>
             <p className="mt-4 text-lg text-[var(--muted)] tracking-wide">
-              creating friendships
+              Building friendships since 1981
             </p>
           </div>
 
-          {/* Search Bar */}
-          <div className="mt-12 max-w-2xl mx-auto">
-            <div className="relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search events..."
-                className="w-full px-4 py-3 text-base border border-[var(--input-border)] focus:border-[var(--gray-400)] focus:outline-none transition-colors"
-              />
-              <svg
-                className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--gray-400)]"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          {/* Search Bar with Sort and Filter */}
+          <div className="mt-12 max-w-7xl mx-auto">
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search events..."
+                  className="w-full px-4 py-3 text-base border border-[var(--input-border)] focus:border-[var(--gray-400)] focus:outline-none transition-colors"
                 />
-              </svg>
+                <svg
+                  className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--gray-400)]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+
+              {/* Sort Dropdown */}
+              <div className="relative min-w-[200px]">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-4 py-3 pr-10 text-sm border border-[var(--input-border)] focus:border-[var(--gray-400)] focus:outline-none transition-colors bg-white appearance-none"
+                >
+                  <option value="date-asc">Date (Soonest)</option>
+                  <option value="date-desc">Date (Latest)</option>
+                  <option value="participants-asc">Participants (Low to High)</option>
+                  <option value="participants-desc">Participants (High to Low)</option>
+                  <option value="alphabetical">Alphabetical (A-Z)</option>
+                </select>
+                <svg
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--gray-400)] pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+
+              {/* Filter Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    const filterMenu = document.getElementById('filter-menu');
+                    if (filterMenu) {
+                      filterMenu.classList.toggle('hidden');
+                    }
+                  }}
+                  className="px-4 py-3 text-sm border border-[var(--input-border)] hover:border-[var(--gray-300)] focus:border-[var(--gray-400)] focus:outline-none transition-colors bg-white flex items-center gap-2"
+                >
+                  <svg className="h-4 w-4 text-[var(--gray-600)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  <span>Filter</span>
+                  {activeFilters.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-[var(--gray-900)] text-white">
+                      {activeFilters.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Filter Menu */}
+                <div
+                  id="filter-menu"
+                  className="hidden absolute right-0 mt-2 w-56 bg-white border border-[var(--border)] shadow-lg z-10"
+                >
+                  <div className="p-2">
+                    <label className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--gray-50)] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={activeFilters.includes('open-spots')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setActiveFilters([...activeFilters, 'open-spots']);
+                          } else {
+                            setActiveFilters(activeFilters.filter(f => f !== 'open-spots'));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-[var(--gray-900)]">Open Spots Available</span>
+                    </label>
+                    <label className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--gray-50)] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={activeFilters.includes('today')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setActiveFilters([...activeFilters, 'today']);
+                          } else {
+                            setActiveFilters(activeFilters.filter(f => f !== 'today'));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-[var(--gray-900)]">Today</span>
+                    </label>
+                    <label className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--gray-50)] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={activeFilters.includes('this-week')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setActiveFilters([...activeFilters, 'this-week']);
+                          } else {
+                            setActiveFilters(activeFilters.filter(f => f !== 'this-week'));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-[var(--gray-900)]">This Week</span>
+                    </label>
+                    <label className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--gray-50)] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={activeFilters.includes('joined')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setActiveFilters([...activeFilters, 'joined']);
+                          } else {
+                            setActiveFilters(activeFilters.filter(f => f !== 'joined'));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-[var(--gray-900)]">Events I Joined</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -370,7 +554,10 @@ export default function Home() {
                       {event.location}
                     </p>
                     <p className="text-xs text-[var(--muted)]">
-                      {event.participants.length} {event.participants.length === 1 ? 'participant' : 'participants'}
+                      {event.max_participants
+                        ? `${event.participants.length}/${event.max_participants} participants`
+                        : `${event.participants.length} ${event.participants.length === 1 ? 'participant' : 'participants'}`
+                      }
                     </p>
                   </div>
                 </div>
@@ -465,7 +652,10 @@ export default function Home() {
               {/* Participants */}
               <div>
                 <h3 className="text-sm font-medium text-[var(--gray-900)] mb-3">
-                  Participants ({selectedEvent.participants.length})
+                  Participants ({selectedEvent.max_participants
+                    ? `${selectedEvent.participants.length}/${selectedEvent.max_participants}`
+                    : selectedEvent.participants.length
+                  })
                 </h3>
                 {participantProfiles.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
@@ -502,21 +692,30 @@ export default function Home() {
             {/* Modal Footer */}
             <div className="border-t border-[var(--border)] p-6">
               {user ? (
-                <button
-                  onClick={handleJoinEvent}
-                  disabled={joiningEvent}
-                  className={`w-full py-3 border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    selectedEvent.participants.includes(user.id)
-                      ? 'border-[var(--border)] bg-white text-[var(--gray-700)] hover:bg-[var(--gray-50)]'
-                      : 'border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)]'
-                  }`}
-                >
-                  {joiningEvent
-                    ? 'Updating...'
-                    : selectedEvent.participants.includes(user.id)
-                    ? 'Leave Event'
-                    : 'Join Event'}
-                </button>
+                <>
+                  <button
+                    onClick={handleJoinEvent}
+                    disabled={joiningEvent || (!selectedEvent.participants.includes(user.id) && selectedEvent.max_participants !== undefined && selectedEvent.max_participants !== null && selectedEvent.participants.length >= selectedEvent.max_participants)}
+                    className={`w-full py-3 border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      selectedEvent.participants.includes(user.id)
+                        ? 'border-[var(--border)] bg-white text-[var(--gray-700)] hover:bg-[var(--gray-50)]'
+                        : 'border-[var(--gray-900)] bg-[var(--gray-900)] text-white hover:bg-[var(--gray-800)]'
+                    }`}
+                  >
+                    {joiningEvent
+                      ? 'Updating...'
+                      : selectedEvent.participants.includes(user.id)
+                      ? 'Leave Event'
+                      : (!selectedEvent.participants.includes(user.id) && selectedEvent.max_participants && selectedEvent.participants.length >= selectedEvent.max_participants)
+                      ? 'Event Full'
+                      : 'Join Event'}
+                  </button>
+                  {!selectedEvent.participants.includes(user.id) && selectedEvent.max_participants && selectedEvent.participants.length >= selectedEvent.max_participants && (
+                    <p className="mt-2 text-xs text-center text-[var(--muted)]">
+                      This event has reached its maximum capacity
+                    </p>
+                  )}
+                </>
               ) : (
                 <Link
                   href="/login"
@@ -655,6 +854,23 @@ export default function Home() {
                 </select>
               </div>
 
+              {/* Max Participants */}
+              <div>
+                <label htmlFor="maxParticipants" className="block text-sm font-medium text-[var(--gray-900)] mb-2">
+                  Max Participants (Optional)
+                </label>
+                <input
+                  type="number"
+                  id="maxParticipants"
+                  value={newEvent.maxParticipants}
+                  onChange={(e) => setNewEvent({ ...newEvent, maxParticipants: e.target.value })}
+                  placeholder="Leave blank for unlimited"
+                  min="1"
+                  className="w-full px-4 py-2.5 text-sm border border-[var(--input-border)] focus:border-[var(--gray-400)] focus:outline-none transition-colors"
+                />
+                <p className="mt-1.5 text-xs text-[var(--muted)]">Set a limit or leave blank for unlimited participants</p>
+              </div>
+
               {/* Tags */}
               <div>
                 <label htmlFor="tags" className="block text-sm font-medium text-[var(--gray-900)] mb-2">
@@ -708,6 +924,7 @@ export default function Home() {
                           category: newEvent.category,
                           hashtags: newEvent.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
                           participants: [],
+                          max_participants: newEvent.maxParticipants ? parseInt(newEvent.maxParticipants) : null,
                           creator_id: user.id,
                         }
                       ]);
@@ -731,6 +948,7 @@ export default function Home() {
                       location: '',
                       category: 'Social',
                       tags: '',
+                      maxParticipants: '',
                     });
                   } catch (error) {
                     console.error('Error:', error);
@@ -886,6 +1104,23 @@ export default function Home() {
                 />
                 <p className="mt-1.5 text-xs text-[var(--muted)]">Separate tags with commas</p>
               </div>
+
+              {/* Max Participants */}
+              <div>
+                <label htmlFor="edit-maxParticipants" className="block text-sm font-medium text-[var(--gray-900)] mb-2">
+                  Max Participants (Optional)
+                </label>
+                <input
+                  type="number"
+                  id="edit-maxParticipants"
+                  name="maxParticipants"
+                  defaultValue={editingEvent.max_participants || ''}
+                  placeholder="Leave blank for unlimited"
+                  min="1"
+                  className="w-full px-4 py-2.5 text-sm border border-[var(--input-border)] focus:border-[var(--gray-400)] focus:outline-none transition-colors"
+                />
+                <p className="mt-1.5 text-xs text-[var(--muted)]">Set a limit or leave blank for unlimited participants</p>
+              </div>
             </form>
 
             {/* Form Footer */}
@@ -905,6 +1140,7 @@ export default function Home() {
                     const form = document.getElementById('edit-event-form') as HTMLFormElement;
                     const formData = new FormData(form);
 
+                    const maxParticipantsValue = formData.get('maxParticipants') as string;
                     const { error } = await supabase
                       .from('events')
                       .update({
@@ -915,6 +1151,7 @@ export default function Home() {
                         location: formData.get('location') as string,
                         category: formData.get('category') as string,
                         hashtags: (formData.get('tags') as string).split(',').map(tag => tag.trim()).filter(tag => tag),
+                        max_participants: maxParticipantsValue ? parseInt(maxParticipantsValue) : null,
                       })
                       .eq('id', editingEvent.id);
 

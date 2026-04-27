@@ -54,7 +54,7 @@ export default function LoginPage() {
           </Link>
           <h2 className="text-2xl font-semibold text-[var(--gray-900)]">Welcome Back</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Log in to continue creating friendships
+            Log in to continue building lifelong memories
           </p>
         </div>
 

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase Connection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Supabase Connection Test</h1>
+    <div id="result"></div>
+
+    <script>
+        // Instructions:
+        // 1. Replace YOUR_ANON_KEY_HERE with your actual anon key
+        // 2. Open this file in a browser
+        // 3. Check the console (F12) for results
+
+        const SUPABASE_URL = 'https://pqbwoypiibednfzibtkp.supabase.co';
+        const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE';
+
+        const resultDiv = document.getElementById('result');
+
+        if (SUPABASE_ANON_KEY === 'YOUR_ANON_KEY_HERE') {
+            resultDiv.innerHTML = `
+                <h2 style="color: orange;">⚠️ Setup Required</h2>
+                <p>Please replace YOUR_ANON_KEY_HERE with your actual Supabase anon key.</p>
+                <p><strong>Where to find it:</strong></p>
+                <ol>
+                    <li>Go to <a href="https://app.supabase.com/project/pqbwoypiibednfzibtkp/settings/api" target="_blank">Supabase API Settings</a></li>
+                    <li>Look for the "anon public" key</li>
+                    <li>It should be a long string starting with "eyJ"</li>
+                    <li>Copy it and paste it in this HTML file</li>
+                </ol>
+            `;
+        } else {
+            const { createClient } = supabase;
+            const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+            resultDiv.innerHTML = '<p>Testing connection...</p>';
+
+            // Test connection by fetching events
+            client.from('events').select('*').limit(1)
+                .then(({ data, error }) => {
+                    if (error) {
+                        resultDiv.innerHTML = `
+                            <h2 style="color: red;">❌ Connection Failed</h2>
+                            <p><strong>Error:</strong> ${error.message}</p>
+                            <p><strong>Details:</strong> ${error.details || 'N/A'}</p>
+                            <p><strong>Hint:</strong> ${error.hint || 'Check your API key and RLS policies'}</p>
+                        `;
+                        console.error('Supabase error:', error);
+                    } else {
+                        resultDiv.innerHTML = `
+                            <h2 style="color: green;">✅ Connection Successful!</h2>
+                            <p>Successfully connected to Supabase.</p>
+                            <p>Events table accessible: ${data.length} event(s) found (limited to 1)</p>
+                        `;
+                        console.log('Success! Data:', data);
+                    }
+                })
+                .catch(err => {
+                    resultDiv.innerHTML = `
+                        <h2 style="color: red;">❌ Unexpected Error</h2>
+                        <p>${err.message}</p>
+                    `;
+                    console.error('Error:', err);
+                });
+        }
+    </script>
+</body>
+</html>
